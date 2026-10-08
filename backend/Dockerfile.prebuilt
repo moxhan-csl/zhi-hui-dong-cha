@@ -1,0 +1,20 @@
+# 预打包路线：jar 由开发机（或 CI）用 JDK 17 打出来，服务器上不装 JDK、不跑 Maven、不落源码。
+# compose（docker-compose.yml）已默认指向本文件：docker compose build && docker compose up -d
+# 前置：backend/target/zhihu-dongcha-backend.jar 必须存在（本地 mvn -DskipTests package 产出）。
+FROM eclipse-temurin:17-jre
+# curl：compose 的 healthcheck 要用；tzdata：让 TZ=Asia/Shanghai 真正生效
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl tzdata \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+ENV TZ=Asia/Shanghai \
+    LANG=C.UTF-8 \
+    JAVA_OPTS="-XX:MaxRAMPercentage=75 -Dfile.encoding=UTF-8"
+
+# 种子语料（seed/*.md）、golden_set、application.yml 都在 jar 里，不需要额外拷贝资源
+COPY target/zhihu-dongcha-backend.jar app.jar
+EXPOSE 8080
+
+# 覆盖 JAVA_OPTS 时要连同 -Dfile.encoding=UTF-8 一起写，否则中文日志可能变问号
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]

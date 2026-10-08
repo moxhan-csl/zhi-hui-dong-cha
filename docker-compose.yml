@@ -1,0 +1,106 @@
+# 智汇洞察 · 部署栈（仅应用容器：后端 + 前端/nginx）
+# MySQL / Redis / pgvector 复用服务器上已经部署好的实例，不进编排、不建容器。
+# 可调参数放在同目录的 .env 里（复制 .env.example 修改），不要写死在本文件。
+# 首次启动前必须填好 .env 里的 LLM_API_KEY：未定义或留空，compose 会直接报错退出（带 :? 的有意拦截）。
+# 塞个假值让它起来也行，但 key 无效时向量会退化成 1024 维哈希假向量——维度与真实向量一致，
+# 入库不报错，之后所有检索质量都受影响且难以察觉。详见 docs/DEPLOY.md。
+
+name: zhihu-dongcha
+
+services:
+  backend:
+    build:
+      context: ./backend
+      # 服务器上不做任何编译：jar 由开发机打好（backend/target/），见 docs/DEPLOY.md
+      dockerfile: Dockerfile.prebuilt
+    restart: unless-stopped
+    # 宿主机上已部署的 MySQL / Redis / pgvector 一律经 host.docker.internal 访问：
+    # 容器里的 127.0.0.1 是自己，写 localhost 必然连不上。
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_HOST: ${MYSQL_HOST:-host.docker.internal}
+      MYSQL_PORT: ${MYSQL_PORT:-3306}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-zhihu_dongcha}
+      MYSQL_USER: ${MYSQL_USER:?}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?}
+      REDIS_HOST: ${REDIS_HOST:-host.docker.internal}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?}
+      PG_HOST: ${PG_HOST:-host.docker.internal}
+      PG_PORT: ${PG_PORT:-5432}
+      PG_DATABASE: ${PG_DATABASE:-kbqa}
+      PG_USER: ${PG_USER:?}
+      PG_PASSWORD: ${PG_PASSWORD:?}
+      JWT_SECRET: ${JWT_SECRET:?}
+      # 故意无默认值：镜像与代码里都不保留密钥
+      LLM_API_KEY: ${LLM_API_KEY:?}
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      LLM_CHAT_MODEL: ${LLM_CHAT_MODEL:-qwen-plus}
+      # 假向量的闸门（D-14）。默认 false = 没有真实 embedding 时**拒绝**入库/检索，
+      # 而不是写入 1024 维哈希向量（维度与真向量一致，入库不报错却静默污染检索质量）。
+      # 只有本机要把链路跑通时才显式 true，且每次写入都伴随一条 WARN。
+      LLM_ALLOW_HASH_VECTORS: ${LLM_ALLOW_HASH_VECTORS:-false}
+      # 浏览器访问的是 nginx（同源），这项只在“前端另地部署、跨域调 API”时才需要
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+      # 空库首次启动时创建 admin@corp.com 用哪个口令；留空则后端随机生成并只在启动日志打印一次
+      ADMIN_INIT_PASSWORD: ${ADMIN_INIT_PASSWORD:-}
+      # 监控中心的当日成本阈值（元）。这是配置项，不是测量值，改这里才会变
+      MONITOR_COST_THRESHOLD: ${MONITOR_COST_THRESHOLD:-600}
+      # 问答护栏（D-31 在途配额 / D-32 日次数与成本熔断）与镜像 TTL、上传上限。
+      # 这些都有 yml 默认值，写成透传是为了"在 .env 里改了确实生效"——compose 不声明的变量不会进容器。
+      CHAT_MAX_INFLIGHT_PER_USER: ${CHAT_MAX_INFLIGHT_PER_USER:-2}
+      CHAT_MAX_INFLIGHT_TOTAL: ${CHAT_MAX_INFLIGHT_TOTAL:-24}
+      CHAT_DAILY_REQUEST_LIMIT: ${CHAT_DAILY_REQUEST_LIMIT:-200}
+      CHAT_COST_BREAKER_YUAN: ${CHAT_COST_BREAKER_YUAN:-800}
+      # 进模型的会话上下文轮数（D-11），0 = 关闭多轮
+      CHAT_CONTEXT_TURNS: ${CHAT_CONTEXT_TURNS:-3}
+      # 忠实度判定未达阈值时的重生成次数（D-1），0 = 关闭自动重试（每次低质回答就多一次合成+判定，受成本熔断约束）
+      CHAT_QUALITY_RETRIES: ${CHAT_QUALITY_RETRIES:-1}
+      # users 鉴权镜像重载周期 + /api/health 的 documents 仪表刷新周期（D-30 第八批），业务表本身每请求直读 MySQL
+      STORE_USER_CACHE_TTL: ${STORE_USER_CACHE_TTL:-60}
+      UPLOAD_MAX_MB: ${UPLOAD_MAX_MB:-50}
+      UPLOAD_DIR: /app/data/uploads
+      JAVA_OPTS: "${JAVA_OPTS:--XX:MaxRAMPercentage=75 -Dfile.encoding=UTF-8}"
+    volumes:
+      # 上传的原始文件落在命名卷，备份只需 tar 这一个卷
+      - app-uploads:/app/data/uploads
+    ports:
+      # 只绑 127.0.0.1：外部流量一律走前端容器的 /api 反代，8080 不对公网开放
+      - "127.0.0.1:${API_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/api/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      # 启动要探测 LLM/pgvector 并可能补齐向量库分块，留足余量
+      start_period: 180s
+    security_opt:
+      - no-new-privileges:true
+
+  frontend:
+    build:
+      context: ./frontend
+      # 静态产物 dist/ 由开发机 npm run build 打好，服务器不装 Node
+      dockerfile: Dockerfile.prebuilt
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    depends_on:
+      backend:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/nginx-health"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  app-uploads:

@@ -1,0 +1,7 @@
+# 注意：这里故意不排除 dist/ —— 预打包路线（Dockerfile.prebuilt）要直接拷 dist/ 进镜像。
+node_modules/
+logs/
+*.log
+.idea/
+.vscode/
+.dockerignore

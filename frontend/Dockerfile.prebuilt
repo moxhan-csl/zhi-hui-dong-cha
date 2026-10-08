@@ -1,0 +1,11 @@
+# 预打包路线：静态产物由开发机 npm run build 生成，服务器上不装 Node、不跑 npm、不落源码。
+# compose（docker-compose.yml）已默认指向本文件：docker compose build && docker compose up -d
+# 前置：frontend/dist/ 必须存在（本地 npm run build 产出）。
+FROM nginx:1.27-alpine
+# nginx:alpine 自带 busybox wget，healthcheck 无需额外装包
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+# 源必须写 dist/（带斜杠）= 拷"目录内容"；不带斜杠时因为目标已是基础镜像存在的目录，
+# 会变成 /usr/share/nginx/html/dist/...，官方默认页 index.html 留在原地被优先返回。
+RUN rm -rf /usr/share/nginx/html/*
+COPY dist/ /usr/share/nginx/html/
+EXPOSE 80

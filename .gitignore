@@ -1,0 +1,14 @@
+# 部署密钥：只留 .env.example，.env 永不入库
+.env
+.env.*
+!.env.example
+
+# 构建产物与本地数据
+backend/target/
+backend/data/
+backend/logs/
+frontend/node_modules/
+frontend/dist/
+*.log
+.idea/
+.tools/

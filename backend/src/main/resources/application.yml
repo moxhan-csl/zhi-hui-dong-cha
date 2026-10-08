@@ -1,0 +1,153 @@
+server:
+  port: 8080
+
+spring:
+  codec:
+    max-in-memory-size: 20MB
+  jackson:
+    default-property-inclusion: non_null
+
+  # ---------- MySQL：业务数据主库（不可用则启动失败） ----------
+  # 兜底默认值一律不给出口：host 指向本机，账号口令留空（D-21/D-29）。
+  # 线上由 compose 从 .env 强制注入，这里留空只会让裸跑启动失败——失败比连到别人家库安全。
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:zhihu_dongcha}?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai&characterEncoding=utf8
+    username: ${MYSQL_USER:}
+    password: ${MYSQL_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      pool-name: mysql-pool
+      maximum-pool-size: 10
+      connection-timeout: 8000
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        jdbc:
+          time_zone: Asia/Shanghai
+
+  # ---------- Redis：登录失败冷却 / 回答缓存 / token 成本 ----------
+  # host 兜底指本机；口令留空 = 试连无口令的 Redis（这是合法形态，不是凭据缺失）。
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:0}
+      timeout: 3s
+      connect-timeout: 5s
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 4
+
+app:
+  jwt:
+    # 故意无默认值（D-29）：带兜底密钥上线等于任何人都能照源码自签令牌。
+    # 留空时 JwtService 构造期直接拒绝启动，不会带着弱密钥起来。
+    secret: ${JWT_SECRET:}
+  # 容器内应指向挂载卷路径（compose 用 UPLOAD_DIR 覆盖）；本地裸跑时是相对工作目录的路径
+  upload-dir: ${UPLOAD_DIR:data/uploads}
+  # 上传体积上限（D-16）。线上 nginx 也会拦一次，但本机裸跑没有 nginx，这里才是唯一闸门
+  upload:
+    max-size-mb: ${UPLOAD_MAX_MB:50}
+  cors-origins: ${CORS_ORIGINS:http://localhost:5173}
+
+  # ---------- 真实 LLM（千问 DashScope OpenAI 兼容接口） ----------
+  llm:
+    provider: ${LLM_PROVIDER:openai}            # openai | mock
+    base-url: ${LLM_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+    # 故意不给默认值：密钥只从 .env / 环境变量注入。留空会让 LLM 兜底到 mock provider，
+    # 向量退化为 1024 维哈希假向量——维度与真向量一致，入库不会报错，检索质量静默变差。
+    api-key: ${LLM_API_KEY:}
+    chat-model: ${LLM_CHAT_MODEL:qwen-plus}
+    embedding-model: ${LLM_EMBED_MODEL:text-embedding-v3}
+    embedding-dim: ${LLM_EMBED_DIM:1024}
+    embedding-batch-size: ${LLM_EMBED_BATCH:10}   # DashScope 兼容模式批量上限 10
+    temperature: ${LLM_TEMPERATURE:0.3}
+    timeout-seconds: ${LLM_TIMEOUT:120}
+    probe-on-startup: ${LLM_PROBE:true}
+    # D-14：没有真实 embedding 时，严格路径（入库/问答检索）默认**拒绝**写 1024 维哈希假向量。
+    # 假向量维度与真向量一致、入库不报错，却会静默污染检索质量且事后无法区分，所以缺密钥时让文档停在 FAILED。
+    # 只有本机无外网、纯粹要把链路跑通时才显式置 true——那时产出的检索结论一律不可信。
+    allow-hash-vectors: ${LLM_ALLOW_HASH_VECTORS:false}
+    # qwen-plus 定价（¥/1K tokens，输入输出合并估算）
+    price-per-1k-tokens: ${LLM_PRICE_PER_1K:0.0008}
+    judge-concurrency: ${LLM_JUDGE_CONCURRENCY:4}
+
+  # ---------- PostgreSQL + pgvector 向量库 ----------
+  # 同 MySQL：host 兜底指本机、口令兜底留空（D-21/D-29）。
+  pg:
+    enabled: ${PG_ENABLED:true}
+    url: jdbc:postgresql://${PG_HOST:127.0.0.1}:${PG_PORT:5432}/${PG_DATABASE:kbqa}
+    username: ${PG_USER:postgres}
+    password: ${PG_PASSWORD:}
+    maximum-pool-size: 6
+    minimum-idle: ${PG_MIN_IDLE:2}
+    connect-timeout-ms: 8000
+    # 远程库/中间网络设备会掐掉空闲连接，借出时才校验会把失效连接直接抛给请求线程并触发降级。
+    # 主动保活 + 收敛连接寿命到远端空闲阈值之内（keepalive < idleTimeout < maxLifetime）。
+    keepalive-ms: ${PG_KEEPALIVE_MS:30000}
+    idle-timeout-ms: ${PG_IDLE_TIMEOUT_MS:180000}
+    max-lifetime-ms: ${PG_MAX_LIFETIME_MS:240000}
+    # 降级期后台重探间隔；探通后自动切回 pgvector 并回放降级窗口内排队的写
+    reprobe-interval-ms: ${PG_REPROBE_MS:30000}
+
+  # ---------- Redis 用途参数 ----------
+  redis:
+    login-fail-ttl-seconds: ${LOGIN_FAIL_TTL:60}
+    login-fail-max: ${LOGIN_FAIL_MAX:5}
+    chat-cache-ttl-seconds: ${CHAT_CACHE_TTL:600}
+    chat-cache-enabled: ${CHAT_CACHE_ENABLED:true}
+
+  # ---------- 问答护栏（D-31 配额 / D-32 成本拦截） ----------
+  chat:
+    # 单用户在途问答数。一次问答占用 worker 最长 = llm.timeout-seconds
+    max-inflight-per-user: ${CHAT_MAX_INFLIGHT_PER_USER:2}
+    # 全局在途问答数（所有用户之和），小于 boundedElastic 容量，给登录/设置页留出 worker
+    max-inflight-total: ${CHAT_MAX_INFLIGHT_TOTAL:24}
+    # 单用户当日问答次数上限，0 = 不限制
+    daily-request-limit: ${CHAT_DAILY_REQUEST_LIMIT:200}
+    # 日成本熔断线（¥），达到后问答入口返回 429；0 = 不启用。
+    # 口径与监控页的估算金额完全同源（单价 = app.llm.price-per-1k-tokens），
+    # 它是"配置的目标线"而不是账单实数；改单价时必须同步改这里。
+    daily-cost-breaker-yuan: ${CHAT_COST_BREAKER_YUAN:800}
+    # 送进模型的会话上下文轮数（D-11）：1 轮 = 一问一答两条消息，3 即最近 6 条。0 = 关闭多轮。
+    # 只影响 synthesis；检索仍只用当前问题原文。历史同时参与回答缓存 key，
+    # 所以改这个值只会让已缓存的回答读不到（窗口变了、key 变了），最迟 TTL 后自然消失，不会串答案。
+    context-turns: ${CHAT_CONTEXT_TURNS:3}
+    # 忠实度判定未达阈值时重新生成的次数（D-1）：0 = 只生成一次（旧的"只标不重试"行为），代码里钳到 0-2。
+    # 只重生成、不重检索（同问题同范围再检一次还是同一批片段），改进指令进 prompt。
+    # 每多 1 就是每个低质问题多一次"合成 + 判定"的真金白银，且会占用同一个在途名额、延长该次问答的耗时；
+    # 未通过校验的回答不再回填缓存，否则回放会把这条质量重试一起跳过。降级到本地模板时不重试（同输入同输出）。
+    quality-retries: ${CHAT_QUALITY_RETRIES:1}
+
+  # ---------- 进程内 MySQL 镜像（Store） ----------
+  store:
+    # 只剩两个读数靠这个周期刷新（D-30：业务表镜像已删，可见性/文档/会话/评测全部直读 MySQL）：
+    # ① users 鉴权镜像——运维直接改库（停用账号）后最迟这么久生效，不必重启进程；
+    # ② /api/health 的 documents 仪表值——它是 COUNT 的滞后快照，不是精确计数。
+    user-cache-ttl-seconds: ${STORE_USER_CACHE_TTL:60}
+
+  eval:
+    # 0 = 全量 golden set；>0 时截取前 N 条（控制真实 LLM 成本）
+    sample-limit: ${EVAL_SAMPLE_LIMIT:0}
+
+  # 启动时对外部服务做健康检查并自动降级
+  health-check:
+    enabled: ${EXTERNAL_HEALTH_CHECK:true}
+    timeout-seconds: ${EXTERNAL_HEALTH_TIMEOUT:25}
+
+  monitor:
+    # 成本告警阈值（¥/日）。它是"配置的目标"，不是账单也不是测量值，前端必须按配置项展示
+    cost-threshold: ${MONITOR_COST_THRESHOLD:600}
+
+logging:
+  level:
+    root: info
+    com.zhihu.dongcha: info
+    org.apache.tika: warn
+    org.hibernate.SQL: warn

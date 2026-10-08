@@ -1,0 +1,8 @@
+# 注意：这里故意不排除 target/ —— 预打包路线（Dockerfile.prebuilt）要从 target/ 里取 jar。
+# 走源码路线时若本地 target/ 很大，构建前先 mvn clean 减小上下文。
+data/
+logs/
+*.log
+.idea/
+*.iml
+.dockerignore

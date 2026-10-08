@@ -1,0 +1,122 @@
+/* ===== 设计 Token（手册 3.2） ===== */
+:root {
+  --brand: #12b886;
+  --brand-soft: #e7f8f2;
+  --info: #228be6;
+  --success: #2fbf71;
+  --warning: #f5a623;
+  --danger: #e5484d;
+  --text: #1c2320;
+  --border: #dde4e1;
+  --bg: #ffffff;
+  --bg-page: #f6f8f7;
+  --radius-control: 8px;
+  --radius-card: 12px;
+  --font-body: 14px;
+  --font-title: 15px;
+  --font-aux: 12px;
+  --nav-width: 240px;
+  --topbar-height: 60px;
+
+  /* ===== Element Plus 主题覆盖：主色 = brand ===== */
+  --el-color-primary: var(--brand);
+  --el-color-primary-light-3: color-mix(in srgb, var(--brand) 70%, white);
+  --el-color-primary-light-5: color-mix(in srgb, var(--brand) 50%, white);
+  --el-color-primary-light-7: color-mix(in srgb, var(--brand) 30%, white);
+  --el-color-primary-light-8: color-mix(in srgb, var(--brand) 20%, white);
+  --el-color-primary-light-9: var(--brand-soft);
+  --el-color-primary-dark-2: color-mix(in srgb, var(--brand) 80%, black);
+  --el-color-success: var(--success);
+  --el-color-warning: var(--warning);
+  --el-color-danger: var(--danger);
+  --el-color-error: var(--danger);
+  --el-color-info: var(--info);
+  --el-text-color-primary: var(--text);
+  --el-text-color-regular: #4a554f;
+  --el-border-color: var(--border);
+  --el-border-radius-base: 8px;
+  --el-font-size-base: 14px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
+  font-size: var(--font-body);
+  color: var(--text);
+  background: var(--bg-page);
+}
+
+a {
+  color: var(--brand);
+  text-decoration: none;
+}
+
+/* 卡片通用 */
+.zd-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 16px;
+}
+
+.muted {
+  font-size: var(--font-aux);
+  color: #7a857f;
+}
+
+/* 状态 pill（文档 4 态） */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: var(--font-aux);
+  line-height: 18px;
+  white-space: nowrap;
+}
+.pill--pending { background: #f0f2f1; color: #6b7570; }
+.pill--parsing { background: #e8f3fd; color: var(--info); }
+.pill--ready { background: var(--brand-soft); color: var(--brand); }
+.pill--failed { background: #fdeaea; color: var(--danger); }
+
+/* 引用卡片高亮动画 */
+@keyframes citation-flash {
+  0% { box-shadow: 0 0 0 3px var(--brand); }
+  100% { box-shadow: 0 0 0 0 rgba(18, 184, 134, 0); }
+}
+.citation-card--flash {
+  animation: citation-flash 1.2s ease-out 2;
+  border-color: var(--brand) !important;
+}
+
+/* 管道节点呼吸动画 */
+@keyframes breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+/* 流式光标 */
+.stream-cursor::after {
+  content: '▍';
+  display: inline-block;
+  margin-left: 2px;
+  color: var(--brand);
+  animation: breathe 1s ease-in-out infinite;
+}
+
+/* 滚动条 */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: #cbd5d0; border-radius: 4px; }
+::-webkit-scrollbar-track { background: transparent; }

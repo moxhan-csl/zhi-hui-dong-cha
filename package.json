@@ -1,0 +1,12 @@
+{
+  "name": "zhi-hui-dong-cha",
+  "private": true,
+  "version": "1.0.0",
+  "description": "智汇洞察 · 仓库根脚本入口（前端见 frontend/，后端见 backend/）",
+  "scripts": {
+    "accept": "node scripts/acceptance/run.mjs",
+    "accept:eval": "node scripts/acceptance/run.mjs --eval",
+    "accept:bootstrap": "node scripts/acceptance/run.mjs --bootstrap",
+    "accept:keep": "node scripts/acceptance/run.mjs --keep"
+  }
+}
